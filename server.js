@@ -12,6 +12,8 @@ app.use('/api/logs', require('./routes/logs'))
 app.use('/api/tasks', require('./routes/tasks'))
 // Analysis Routes
 app.use('/api', require('./routes/analysis'))
+// Google Calendar Sync
+app.use('/api/gcal', require('./routes/gcal'))
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
@@ -20,8 +22,4 @@ mongoose.connect(process.env.MONGO_URI)
 app.listen(process.env.PORT, () => {
   console.log(`Server running on port ${process.env.PORT}`)
 })
-
-// gcal step
-// app.use('/api/gcal', require('./routes/gcal'))
-// The OAuth client setup — but that'll probably live in its own googleAuth.js file that gets imported where needed, not directly in server.js
 

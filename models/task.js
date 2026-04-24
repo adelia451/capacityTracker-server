@@ -2,7 +2,10 @@ const mongoose = require('mongoose')
 
 const taskSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  category: String,
+  category: {
+    type: String,
+    enum: ['class', 'homework', 'practice', 'projects', 'admin', 'maintenance', 'social']
+  },
   date: { type: String, required: true },
   effortWeight: { type: Number, min: 1, max: 5 },
   completed: { type: Boolean, default: false },
