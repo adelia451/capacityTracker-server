@@ -1,5 +1,5 @@
 const router = require('express').Router()
-const Task = require('../models/task')
+const Task = require('../models/Task')
 
 router.post('/', async (req, res) => {
   try {
@@ -34,6 +34,7 @@ router.get('/:date', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json(task)
   } catch (err) {
     res.status(400).json({ error: err.message })

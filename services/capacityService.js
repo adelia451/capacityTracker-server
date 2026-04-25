@@ -1,5 +1,5 @@
 // services/capacityService.js
-const DailyLog = require('../models/dailyLog')
+const DailyLog = require('../models/DailyLog')
 
 const moodMap = {
   depressed: -4, heavy: -3, sad: -2, meh: -1,

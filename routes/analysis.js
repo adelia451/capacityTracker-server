@@ -5,7 +5,7 @@ const predictionService = require('../services/predictionService')
 
 router.get('/capacity', async (req, res) => {
   try {
-    const date = req.query.date || new Date().toISOString().slice(0, 10)
+    const date = req.query.date || new Date().toLocaleDateString('en-CA')
     const result = await capacityService.compute(date)
     res.json(result)
   } catch (err) {

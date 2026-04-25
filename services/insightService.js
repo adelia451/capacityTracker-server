@@ -1,4 +1,4 @@
-const DailyLog = require('../models/dailyLog')
+const DailyLog = require('../models/DailyLog')
 
 const generate = async () => {
   const logs = await DailyLog.find().sort({ date: 1 })

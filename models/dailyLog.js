@@ -1,7 +1,7 @@
 const mongoose = require('mongoose')
 
 const dailyLogSchema = new mongoose.Schema({
-  date: { type: String, required: true, unique: true },
+  date: { type: String, required: true, unique: true }, // format: YYYY-MM-DD (local time)
 
   sleep: {
     start: String,

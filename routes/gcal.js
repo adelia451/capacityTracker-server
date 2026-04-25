@@ -1,7 +1,7 @@
 const router = require('express').Router()
 const { google } = require('googleapis')
 const auth = require('../services/googleAuthService')
-const Task = require('../models/task')
+const Task = require('../models/Task')
 
 const CALENDARS = {
   class:       process.env.GCAL_CLASS_ID,

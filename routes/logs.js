@@ -1,15 +1,18 @@
 // created the router
 const router = require('express').Router()
 // imported the model
-const DailyLog = require('../models/dailyLog')
+const DailyLog = require('../models/DailyLog')
 
 // post
 router.post('/', async (req, res) => {
   try {
-    const log = new DailyLog(req.body) //
-    await log.save()    //takes incoming json and saves it
+    const log = new DailyLog(req.body)
+    await log.save()
     res.status(201).json(log)
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ error: 'A log already exists for this date' })
+    }
     res.status(400).json({ error: err.message })
   }
 })
@@ -35,7 +38,8 @@ router.get('/:date', async (req, res) => { // :date is a URL parameter
 
 router.put('/:id', async (req, res) => {
   try {
-    const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { new: true }) // updates a document by mongodb _id
+    const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    if (!log) return res.status(404).json({ error: 'Log not found' })
     res.json(log)
   } catch (err) {
     res.status(400).json({ error: err.message })
