@@ -7,8 +7,8 @@ const predict = async () => {
     return { prediction: 'Not enough data yet — predictions appear after 7+ days of logging' }
   }
 
+  // TODO: nap prediction (naps)
   // TODO: protein prediction (proteinLogs)
-  // TODO: nap prediction (naps - hours, feltRestedAfter)
   // TODO: alcohol prediction (alcohol)
 
   const avgSleep =

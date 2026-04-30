@@ -1,4 +1,4 @@
-## Step 1: Back-End API
+# Step 1: Back-End API
 
 **Goals**
 - Build and test all planned Express routes:
@@ -104,32 +104,53 @@ Each `app.use()` line connects a route file to a base URL path. This keeps the c
 
 Create two files in `/models`:
 
-**`models/dailyLog.js`**
+**`models/DailyLog.js`**
 
 This tracks everything about a single day: sleep, mood, stress, medication, and more. Each day gets one log, which is why `date` is `unique: true`.
+
+`state` and `reason` are pulled out as constants at the top and reused across multiple fields so there is only one place to update them.
 
 ```js
 const mongoose = require('mongoose')
 
+const state = ['sleepy', 'tired', 'neutral', 'awake', 'energized']
+const reason = [
+  // neutral / fallback
+  'no clear reason',
+  // internal
+  'accomplishment', 'loneliness', 'low motivation', 'mentally tired',
+  'overthinking', 'overwhelmed', 'self image',
+  // physical
+  'hunger', 'low energy', 'sickness',
+  // external
+  'career', 'conflict', 'family', 'hobby', 'relationship',
+  'relaxation', 'school', 'social activity', 'social life', 'workload'
+]
+
 const dailyLogSchema = new mongoose.Schema({
-  date: { type: String, required: true, unique: true },
+  date: { type: String, required: true, unique: true }, // format: YYYY-MM-DD (local time)
 
   sleep: {
     start: String,
     end: String,
     hours: Number,
-    state: { 
-      type: String, 
-      enum: ['sleepy', 'tired', 'neutral', 'awake', 'energized'] 
-    }
+    state: { type: String, enum: state }
   },
+
+  naps: [{
+    start: String,
+    end: String,
+    hours: Number,
+    feltRestedAfter: { type: String, enum: state }
+  }],
 
   moodLogs: [{ 
     time: String, 
     value: { 
       type: String, 
       enum: ['depressed', 'heavy', 'sad', 'meh', 'neutral', 'positive', 'happy'] 
-    } 
+    },
+    reason: { type: String, enum: reason, default: 'no clear reason' }
   }],
 
   stressLogs: [{ 
@@ -137,7 +158,8 @@ const dailyLogSchema = new mongoose.Schema({
     value: { 
       type: String, 
       enum: ['understimulated', 'stress-free', 'balanced', 'debilitating', 'paralyzing'] 
-    } 
+    },
+    reason: { type: String, enum: reason, default: 'no clear reason' }
   }],
 
   medication: {
@@ -146,7 +168,8 @@ const dailyLogSchema = new mongoose.Schema({
     feltPeak: String,
     feltEnd: String,
     focusCapacityHours: Number,
-    feltQuality: Number,
+    medQuality: [{ type: String, enum: ['no effect', 'lightly felt', 'felt', 'strongly felt'] }],
+    focusQuality: [{ type: String, enum: ['unfocused', 'focused', 'locked-in'] }],
     skipped: Boolean,
     skipReasons: [{ 
       type: String, 
@@ -156,16 +179,6 @@ const dailyLogSchema = new mongoose.Schema({
 
   proteinLogs: [{ time: String, grams: Number }],
 
-  naps: [{
-    start: String,
-    end: String,
-    hours: Number,
-    feltRestedAfter: { 
-      type: String, 
-      enum: ['sleepy', 'tired', 'neutral', 'awake', 'energized'] 
-    }
-  }],
-
   alcohol: Boolean
 })
 
@@ -173,14 +186,14 @@ module.exports = mongoose.model('DailyLog', dailyLogSchema)
 ```
 
 > **Customizing this for yourself:**
-> - `moodLogs` and `stressLogs` are arrays because you might log mood/stress multiple times in a day. Each entry has a `time` and a `value`
-> - The `enum` values are the only values that will be accepted. Change them to match however you actually describe your moods and stress levels
-> - `medication` tracks a full picture of how your medication felt that day. Remove fields you don't need or add ones that matter to you (e.g. `dose`)
-> - `proteinLogs`, `naps`, and `alcohol` are in the schema now even though I am not analyzing them yet. They're something I want to implement at the end of the project since it may take extra time and this is an assignment with a due date. I can start logging that data and it'll be ready when I build analysis for it later. 
+> - `moodLogs` and `stressLogs` are arrays because you might log mood/stress multiple times in a day. Each entry has a `time`, a `value`, and a `reason`
+> - The `reason` enum covers internal, physical, and external reasons. Update it to match what actually applies to your life
+> - `medQuality` tracks how strongly the medication was felt. `focusQuality` tracks focus level. Both are arrays so you can log how they felt at different points in the day (e.g. onset vs peak vs wearing off)
+> - `proteinLogs`, `naps`, and `alcohol` are in the schema now even though I am not analyzing them yet. They're something I want to implement at the end of the project since it may take extra time and this is an assignment with a due date. I can start logging that data and it will be ready when I build analysis for it later.
 
 ---
 
-**`models/task.js`**
+**`models/Task.js`**
 
 Tasks sync in from Google Calendar. The schema is built around that. Most fields get populated automatically on sync.
 
@@ -230,7 +243,7 @@ Routes are what define your API endpoints -- what URLs exist and what they do. E
 **`routes/logs.js`**
 ```js
 const router = require('express').Router()
-const DailyLog = require('../models/dailyLog')
+const DailyLog = require('../models/DailyLog')
 
 router.post('/', async (req, res) => {
   try {
@@ -238,6 +251,9 @@ router.post('/', async (req, res) => {
     await log.save()
     res.status(201).json(log)
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ error: 'A log already exists for this date' })
+    }
     res.status(400).json({ error: err.message })
   }
 })
@@ -264,6 +280,7 @@ router.get('/:date', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    if (!log) return res.status(404).json({ error: 'Log not found' })
     res.json(log)
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -282,9 +299,11 @@ router.delete('/:id', async (req, res) => {
 module.exports = router
 ```
 
-**`routes/tasks.js`** follows the exact same pattern — just swap `DailyLog` for `Task`. The only difference is the GET by date uses `.find()` instead of `.findOne()` because multiple tasks can exist for the same date.
+**`routes/tasks.js`** follows the exact same pattern, just swap `DailyLog` for `Task`. The only difference is the GET by date uses `.find()` instead of `.findOne()` because multiple tasks can exist for the same date. The PUT route also includes the same null check.
 
 > **Why `{ new: true }` in the PUT route?** By default, `findByIdAndUpdate` returns the document *before* the update. Passing `{ new: true }` makes it return the updated version instead, which is what you actually want to see in the response.
+>
+> **Why check `err.code === 11000` in the POST route?** MongoDB throws that specific error code when a unique constraint is violated. Catching it separately lets you return a clear, readable message instead of a raw database error.
 
 ---
 
@@ -300,7 +319,7 @@ const predictionService = require('../services/predictionService')
 
 router.get('/capacity', async (req, res) => {
   try {
-    const date = req.query.date || new Date().toISOString().slice(0, 10)
+    const date = req.query.date || new Date().toLocaleDateString('en-CA')
     const result = await capacityService.compute(date)
     res.json(result)
   } catch (err) {
@@ -355,13 +374,21 @@ const stressMap = {
 const sleepMap = {
   sleepy: -2, tired: -1, neutral: 0, awake: 1, energized: 2
 }
+
+const medQualityMap = {
+  'no effect': -2, 'lightly felt': -1, 'felt': 1, 'strongly felt': 2
+}
+
+const focusQualityMap = {
+  'unfocused': -1, 'focused': 1, 'locked-in': 2
+}
 ```
 
-**The stress scale is a U-shape** — `balanced` is the peak because that's productive good stress. Both extremes hurt:
-- `paralyzing` (-3) → so much stress you do nothing
-- `debilitating` (-2) → lots of stress, some output but taxing
-- `stress-free` (+1) → feeling good with little to no work to worry about
-- `understimulated` (-1) → so little urgency you end up doing nothing
+**The stress scale is a U-shape** -- `balanced` is the peak because that's productive good stress. Both extremes hurt:
+- `paralyzing` (-3) -- so much stress you do nothing
+- `debilitating` (-2) -- lots of stress, some output but taxing
+- `stress-free` (+1) -- feeling good with little to no work to worry about
+- `understimulated` (-1) -- so little urgency you end up doing nothing
 
 **!! This stress scale, and all scales, are personal to my experience !!**
 
@@ -372,7 +399,8 @@ const MAX_STRESS = 3
 const MAX_SLEEP_STATE = 2
 const BASELINE_SLEEP = 6
 const MAX_SLEEP_DEVIATION = 6
-const MAX_MED_QUALITY = 5
+const MAX_MED_QUALITY = 2
+const MAX_FOCUS_QUALITY = 2
 ```
 
 **Weights** control how much each factor counts. Right now they're all equal — this is intentional. Eventually these will be learned from your data:
@@ -478,7 +506,7 @@ POST body for creating a log:
   "sleep": { "start": "23:00", "end": "07:00", "hours": 8, "state": "awake" },
   "moodLogs": [{ "time": "09:00", "value": "positive" }],
   "stressLogs": [{ "time": "10:00", "value": "balanced" }],
-  "medication": { "takenAt": "08:30", "feltQuality": 4, "skipped": false }
+  "medication": { "takenAt": "08:30", "medQuality": ["felt"], "focusQuality": ["focused"], "skipped": false }
 }
 ```
 

@@ -1,5 +1,37 @@
 const mongoose = require('mongoose')
 
+const state = ['sleepy', 'tired', 'neutral', 'awake', 'energized']
+const reason = [
+  // neutral / fallback
+  'no clear reason',
+
+  // internal
+  'accomplishment',
+  'loneliness',
+  'low motivation',
+  'mentally tired',
+  'overthinking',
+  'overwhelmed',
+  'self image',
+      
+  // physical
+  'hunger',
+  'low energy',
+  'sickness',
+
+  //external
+  'career',
+  'conflict',
+  'family',
+  'hobby',
+  'relationship',
+  'relaxation',
+  'school',
+  'social activity',
+  'social life',
+  'workload'
+]
+
 const dailyLogSchema = new mongoose.Schema({
   date: { type: String, required: true, unique: true }, // format: YYYY-MM-DD (local time)
 
@@ -9,16 +41,31 @@ const dailyLogSchema = new mongoose.Schema({
     hours: Number,
     state: { 
       type: String, 
-      enum: ['sleepy', 'tired', 'neutral', 'awake', 'energized'] 
+      enum: state 
     }
   },
+
+  naps: [{
+    start: String,
+    end: String,
+    hours: Number,
+    feltRestedAfter: { 
+      type: String, 
+      enum: state
+    }
+  }],
 
   moodLogs: [{ 
     time: String, 
     value: { 
       type: String, 
       enum: ['depressed', 'heavy', 'sad', 'meh', 'neutral', 'positive', 'happy'] 
-    } 
+    },
+  reason: {
+      type: String,
+      enum: reason,
+      default: 'no clear reason'
+    }
   }],
 
   stressLogs: [{ 
@@ -26,7 +73,12 @@ const dailyLogSchema = new mongoose.Schema({
     value: { 
       type: String, 
       enum: ['understimulated', 'stress-free', 'balanced', 'debilitating', 'paralyzing'] 
-    } 
+    },
+    reason: {
+      type: String,
+      enum: reason,
+      default: 'no clear reason'
+    }
   }],
 
   medication: {
@@ -35,7 +87,14 @@ const dailyLogSchema = new mongoose.Schema({
     feltPeak: String,
     feltEnd: String,
     focusCapacityHours: Number,
-    feltQuality: Number,
+    medQuality: [{
+      type: String,
+      enum: ['no effect', 'lightly felt', 'felt', 'strongly felt']
+    }],
+    focusQuality: [{
+      type: String,
+      enum: ['unfocused', 'focused', 'locked-in']
+    }],
     skipped: Boolean,
     skipReasons: [{ 
       type: String, 
@@ -44,16 +103,6 @@ const dailyLogSchema = new mongoose.Schema({
   },
 
   proteinLogs: [{ time: String, grams: Number }],
-
-  naps: [{
-    start: String,
-    end: String,
-    hours: Number,
-    feltRestedAfter: { 
-      type: String, 
-      enum: ['sleepy', 'tired', 'neutral', 'awake', 'energized'] 
-    }
-  }],
 
   alcohol: Boolean
 })

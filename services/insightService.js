@@ -9,8 +9,8 @@ const generate = async () => {
 
   const insights = []
 
+  // TODO: nap insights (naps)
   // TODO: protein insights (proteinLogs)
-  // TODO: nap insights (naps - hours, feltRestedAfter)
   // TODO: alcohol insights (alcohol)
 
   const avgSleep =
