@@ -531,3 +531,33 @@ POST body for creating a log:
 | 13 | GET | `/api/prediction` |
 
 Insights and prediction will return `"Not enough data yet"` until you have 7+ days of logs. That's expected and correct behavior.
+
+---
+
+### Future: When to Upgrade the Analysis
+
+The current prediction and scoring is intentionally simple -- averages and hardcoded weights. Here's when and what to change as you collect more data.
+
+**Around 30 days of logs -- expand the prediction window**
+
+Right now predictions use the last 7 days. At 30+ days you have enough history that a wider window will be more accurate. In `predictionService.js`, change `.limit(7)` to `.limit(30)` and update the minimum data check from `logs.length < 7` to `logs.length < 30`.
+
+**Around 60-90 days -- start looking for patterns**
+
+This is when you have enough data to start detecting real correlations. Things to build:
+- Burnout streak detection (4+ consecutive high-score days predicting a drop)
+- Social event carryover (does the day after a social task consistently score lower?)
+- Emotional carryover (does low end-of-day mood predict lower next-day capacity?)
+
+These live in `insightService.js` and use `reasonMap.js` for mood/stress reason analysis.
+
+**Around 3-6 months -- replace hardcoded weights with learned ones**
+
+The `weights` object in `capacityService.js` currently treats every factor equally. Once you have enough data, you can train a simple regression model to learn which factors actually matter most for YOUR capacity. The model output replaces the hardcoded `1` values. Until then, equal weights are a reasonable starting point.
+
+**Signs you have enough data to start ML:**
+- You can see real patterns in your logs (some days are consistently better than others)
+- Insights are returning actual observations, not just sleep averages
+- You have at least a few instances of burnout cycles, social events, medication skips, etc. to learn from
+
+You do not need to do all of this at once. Each upgrade is independent -- you can add burnout detection without touching the weights, or expand the window without rebuilding insights.

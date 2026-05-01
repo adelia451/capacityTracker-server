@@ -4,7 +4,7 @@ const generate = async () => {
   const logs = await DailyLog.find().sort({ date: 1 })
 
   if (logs.length < 7) {
-    return { insights: ['Not enough data yet — insights appear after 7+ days of logging'] }
+    return ['Not enough data yet — insights appear after 7+ days of logging']
   }
 
   const insights = []
@@ -22,7 +22,7 @@ const generate = async () => {
     insights.push('Your sleep is generally in a healthy range')
   }
 
-  return { insights }
+  return insights
 }
 
 module.exports = { generate }

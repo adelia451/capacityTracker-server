@@ -1,4 +1,3 @@
-// services/capacityService.js
 const DailyLog = require('../models/DailyLog')
 
 const moodMap = {
@@ -52,78 +51,73 @@ const compute = async (date) => {
   if (!log) return { date, score: null, message: 'No log found for this date' }
 
   let score = 0
+  const factors = []
 
   // Sleep hours - centered baseline
   if (log.sleep?.hours !== undefined) {
-    const centered = log.sleep.hours - BASELINE_SLEEP
-    const normalized = centered / MAX_SLEEP_DEVIATION   // ~ -1 to 1
+    const normalized = (log.sleep.hours - BASELINE_SLEEP) / MAX_SLEEP_DEVIATION
     score += normalized * weights.sleepHours
+    factors.push({ label: 'Sleep hours', impact: Math.abs(normalized), positive: normalized >= 0 })
   }
 
   // Sleep state
   if (log.sleep?.state) {
-    const raw = sleepMap[log.sleep.state] ?? 0
-    const normalized = raw / MAX_SLEEP_STATE
+    const normalized = (sleepMap[log.sleep.state] ?? 0) / MAX_SLEEP_STATE
     score += normalized * weights.sleepState
+    factors.push({ label: 'Sleep state', impact: Math.abs(normalized), positive: normalized >= 0 })
   }
 
-  // Mood 
+  // Mood
   if (log.moodLogs?.length) {
-    const avgMood =
-      log.moodLogs.reduce((sum, entry) => {
-        return sum + (moodMap[entry.value] ?? 0)
-      }, 0) / log.moodLogs.length
-
+    const avgMood = log.moodLogs.reduce((sum, e) => sum + (moodMap[e.value] ?? 0), 0) / log.moodLogs.length
     const normalized = avgMood / MAX_MOOD
     score += normalized * weights.mood
+    factors.push({ label: 'Mood', impact: Math.abs(normalized), positive: normalized >= 0 })
   }
 
-  // Stress 
+  // Stress
   if (log.stressLogs?.length) {
-    const avgStress =
-      log.stressLogs.reduce((sum, entry) => {
-        return sum + (stressMap[entry.value] ?? 0)
-      }, 0) / log.stressLogs.length
-
+    const avgStress = log.stressLogs.reduce((sum, e) => sum + (stressMap[e.value] ?? 0), 0) / log.stressLogs.length
     const normalized = avgStress / MAX_STRESS
     score += normalized * weights.stress
+    factors.push({ label: 'Stress', impact: Math.abs(normalized), positive: normalized >= 0 })
   }
 
-  // Nap hours and state (averaged across all naps if multiple)
+  // Nap hours and state
   if (log.naps?.length) {
-    const avgNapHours =
-      log.naps.reduce((sum, nap) => sum + (nap.hours || 0), 0) / log.naps.length
-    const centeredNap = avgNapHours - BASELINE_NAP
-    score += (centeredNap / MAX_NAP_DEVIATION) * weights.napHours
+    const avgNapHours = log.naps.reduce((sum, nap) => sum + (nap.hours || 0), 0) / log.naps.length
+    const napHoursNorm = (avgNapHours - BASELINE_NAP) / MAX_NAP_DEVIATION
+    score += napHoursNorm * weights.napHours
+    factors.push({ label: 'Nap hours', impact: Math.abs(napHoursNorm), positive: napHoursNorm >= 0 })
 
-    const avgNapState =
-      log.naps.reduce((sum, nap) => sum + (sleepMap[nap.feltRestedAfter] ?? 0), 0) / log.naps.length
-    score += (avgNapState / MAX_SLEEP_STATE) * weights.napState
+    const avgNapState = log.naps.reduce((sum, nap) => sum + (sleepMap[nap.feltRestedAfter] ?? 0), 0) / log.naps.length
+    const napStateNorm = avgNapState / MAX_SLEEP_STATE
+    score += napStateNorm * weights.napState
+    factors.push({ label: 'Nap state', impact: Math.abs(napStateNorm), positive: napStateNorm >= 0 })
   }
 
   // Medication
   if (log.medication && !log.medication.skipped) {
     const scores = []
-
     if (log.medication.medQuality?.length) {
       const avg = log.medication.medQuality.reduce((sum, q) => sum + (medQualityMap[q] ?? 0), 0) / log.medication.medQuality.length
       scores.push(avg / MAX_MED_QUALITY)
     }
-
     if (log.medication.focusQuality?.length) {
       const avg = log.medication.focusQuality.reduce((sum, q) => sum + (focusQualityMap[q] ?? 0), 0) / log.medication.focusQuality.length
       scores.push(avg / MAX_FOCUS_QUALITY)
     }
-
     if (scores.length) {
       const normalized = scores.reduce((sum, s) => sum + s, 0) / scores.length
       score += normalized * weights.medication
+      factors.push({ label: 'Medication', impact: Math.abs(normalized), positive: normalized >= 0 })
     }
   }
 
   return {
     date,
-    score: Math.round(score * 100) / 100
+    score: Math.round(score * 100) / 100,
+    factors
   }
 }
 
