@@ -55,30 +55,22 @@ const dailyLogSchema = new mongoose.Schema({
     }
   }],
 
-  moodLogs: [{ 
-    time: String, 
-    value: { 
-      type: String, 
-      enum: ['depressed', 'heavy', 'sad', 'meh', 'neutral', 'positive', 'happy'] 
-    },
-  reason: {
+  moodLogs: [{
+    time: String,
+    value: [{
       type: String,
-      enum: reason,
-      default: 'no clear reason'
-    }
+      enum: ['depressed', 'heavy', 'sad', 'meh', 'neutral', 'positive', 'happy']
+    }],
+    reason: [{ type: String, enum: reason }]
   }],
 
-  stressLogs: [{ 
-    time: String, 
-    value: { 
-      type: String, 
-      enum: ['understimulated', 'stress-free', 'balanced', 'debilitating', 'paralyzing'] 
-    },
-    reason: {
+  stressLogs: [{
+    time: String,
+    value: {
       type: String,
-      enum: reason,
-      default: 'no clear reason'
-    }
+      enum: ['understimulated', 'stress-free', 'balanced', 'debilitating', 'paralyzing']
+    },
+    reason: [{ type: String, enum: reason }]
   }],
 
   medication: {
@@ -104,7 +96,9 @@ const dailyLogSchema = new mongoose.Schema({
 
   proteinLogs: [{ time: String, grams: Number }],
 
-  alcohol: Boolean
+  alcohol: { type: Number, default: 0 },
+
+  actualCapacityRating: { type: Number, min: 1, max: 10, default: null }
 })
 
 module.exports = mongoose.model('DailyLog', dailyLogSchema)

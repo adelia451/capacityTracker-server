@@ -13,6 +13,13 @@ const taskSchema = new mongoose.Schema({
   timesPostponed: { type: Number, default: 0 },
   postponedDates: [{ type: String }],
 
+  startTime: { type: String, default: null },
+  endTime:   { type: String, default: null },
+
+  // Class-specific fields
+  skippedClass:     { type: Boolean, default: false },
+  skipClassReasons: { type: [String], enum: ['sick', 'workload', 'period pain', 'low mood', 'tiredness'], default: [] },
+
   // Google Calendar fields
   gcalEventId: { type: String, default: null },  // duplicate prevention on sync
   source: { type: String, enum: ['manual', 'gcal'], default: 'gcal' }

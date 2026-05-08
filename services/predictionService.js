@@ -29,17 +29,21 @@ const predict = async () => {
   // Confidence drops with distance and inconsistency (stdDev)
   const baseConfidence = Math.max(0, 100 - stdDev * 15)
 
-  // Average factors across past 7 days -- used as baseline for predicted days
+  // Average factors across past 7 days -- group by key (not label, since labels are dynamic)
   const allFactors = scores.flatMap(s => s.factors || [])
-  const factorLabels = [...new Set(allFactors.map(f => f.label))]
-  const avgFactors = factorLabels.map(label => {
-    const matching = allFactors.filter(f => f.label === label)
+  const factorKeys = [...new Set(allFactors.map(f => f.key))]
+  const avgFactors = factorKeys.map(key => {
+    const matching = allFactors.filter(f => f.key === key)
     const avgImpact = matching.reduce((sum, f) => sum + f.impact, 0) / matching.length
     const positiveCount = matching.filter(f => f.positive).length
+    const neutralCount  = matching.filter(f => f.neutral).length
+    const neutral = neutralCount >= matching.length / 2
     return {
-      label,
+      key,
+      label: matching[matching.length - 1]?.label || key,
       impact: Math.round(avgImpact * 100) / 100,
-      positive: positiveCount >= matching.length / 2
+      positive: !neutral && positiveCount >= matching.length / 2,
+      neutral
     }
   })
 

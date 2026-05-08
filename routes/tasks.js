@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 router.get('/:date', async (req, res) => {
   try {
     // find not findOne — multiple tasks can exist for the same date
-    const tasks = await Task.find({ date: req.params.date })
+    const tasks = await Task.find({ date: req.params.date }).sort({ startTime: 1 })
     if (!tasks.length) return res.status(404).json({ error: 'No tasks found for this date' })
     res.json(tasks)
   } catch (err) {
@@ -33,7 +33,7 @@ router.get('/:date', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const task = await Task.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
     if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json(task)
   } catch (err) {

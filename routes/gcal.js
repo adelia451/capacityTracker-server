@@ -26,7 +26,8 @@ router.post('/sync', async (req, res) => {
     const timeMax = new Date(now)
     timeMax.setDate(timeMax.getDate() + 14)
 
-    const results = { created: 0, updated: 0 }
+    const results = { created: 0, updated: 0, deleted: 0 }
+    const syncedEventIds = []
 
     for (const [category, calendarId] of Object.entries(CALENDARS)) {
       if (!calendarId) continue
@@ -42,14 +43,21 @@ router.post('/sync', async (req, res) => {
       for (const event of (response.data.items || [])) {
         if (event.status === 'cancelled') continue
 
+        syncedEventIds.push(event.id)
+
         const date = (event.start.date || event.start.dateTime || '').slice(0, 10)
         const timeSpent = getEventDurationMinutes(event)
         const existing = await Task.findOne({ gcalEventId: event.id })
+
+        const startTime = event.start.dateTime || null
+        const endTime = event.end.dateTime || null
 
         if (existing) {
           existing.title = event.summary || 'Untitled'
           existing.date = date
           existing.timeSpent = timeSpent
+          existing.startTime = startTime
+          existing.endTime = endTime
           await existing.save()
           results.updated++
         } else {
@@ -58,6 +66,8 @@ router.post('/sync', async (req, res) => {
             category,
             date,
             timeSpent,
+            startTime,
+            endTime,
             gcalEventId: event.id,
             source: 'gcal'
           })
@@ -65,6 +75,16 @@ router.post('/sync', async (req, res) => {
         }
       }
     }
+
+    // Delete GCal tasks within the sync window that no longer exist in GCal
+    const minDate = timeMin.toISOString().slice(0, 10)
+    const maxDate = timeMax.toISOString().slice(0, 10)
+    const deleted = await Task.deleteMany({
+      source: 'gcal',
+      date: { $gte: minDate, $lte: maxDate },
+      gcalEventId: { $nin: syncedEventIds }
+    })
+    results.deleted = deleted.deletedCount
 
     res.json({ message: 'Sync complete', ...results })
   } catch (err) {

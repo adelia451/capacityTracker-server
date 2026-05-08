@@ -38,7 +38,7 @@ router.get('/:date', async (req, res) => { // :date is a URL parameter
 
 router.put('/:id', async (req, res) => {
   try {
-    const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
     if (!log) return res.status(404).json({ error: 'Log not found' })
     res.json(log)
   } catch (err) {
