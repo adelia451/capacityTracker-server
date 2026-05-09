@@ -33,7 +33,9 @@ router.get('/:date', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const task = await Task.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
+    const update = { ...req.body }
+    if (update.timesPostponed !== undefined) update.timeSpent = 0
+    const task = await Task.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
     if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json(task)
   } catch (err) {

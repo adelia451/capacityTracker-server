@@ -121,7 +121,7 @@ const buildVectors = (logs, scoreMap, tasksByDate) => {
     const tasks = tasksByDate[log.date] || []
 
     // Mood
-    const allMoodVals  = log.moodLogs?.flatMap(e => e.value || []) || []
+    const allMoodVals  = log.moodLogs?.map(e => e.value).filter(Boolean) || []
     const avgMoodNum   = allMoodVals.length ? avg(allMoodVals.map(v => MOOD_MAP[v] ?? 0)) : null
     const moodReasons  = reasonCategories(log.moodLogs)
 

@@ -57,10 +57,10 @@ const dailyLogSchema = new mongoose.Schema({
 
   moodLogs: [{
     time: String,
-    value: [{
+    value: {
       type: String,
       enum: ['depressed', 'heavy', 'sad', 'meh', 'neutral', 'positive', 'happy']
-    }],
+    },
     reason: [{ type: String, enum: reason }]
   }],
 

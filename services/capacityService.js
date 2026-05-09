@@ -2,6 +2,13 @@ const DailyLog = require('../models/DailyLog')
 const Task = require('../models/Task')
 const WeightSettings = require('../models/WeightSettings')
 
+const fmtHours = (hours) => {
+  const h = Math.floor(hours)
+  const m = Math.round((hours - h) * 60)
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+const fmtMinutes = (mins) => fmtHours(mins / 60)
+
 const MOOD_MAP = {
   depressed: -4, heavy: -3, sad: -2, meh: -1,
   neutral: 0, positive: 1, happy: 2
@@ -82,9 +89,9 @@ const compute = async (date) => {
   if (log.sleep?.hours !== undefined) {
     const normalized = (log.sleep.hours - BASELINE_SLEEP) / MAX_SLEEP_DEVIATION
     score += normalized * weights.sleepHours
-    const label = normalized >= 0.2 ? `Good sleep (${log.sleep.hours}h)`
-                : normalized <= -0.2 ? `Poor sleep (${log.sleep.hours}h)`
-                : `Neutral sleep (${log.sleep.hours}h)`
+    const label = normalized >= 0.2 ? `Good sleep (${fmtHours(log.sleep.hours)})`
+                : normalized <= -0.2 ? `Poor sleep (${fmtHours(log.sleep.hours)})`
+                : `Neutral sleep (${fmtHours(log.sleep.hours)})`
     addFactor('sleepHours', label, normalized)
   }
 
@@ -96,7 +103,7 @@ const compute = async (date) => {
   }
 
   // Mood
-  const allMoodValues = log.moodLogs?.flatMap(e => e.value || []) || []
+  const allMoodValues = log.moodLogs?.map(e => e.value).filter(Boolean) || []
   if (allMoodValues.length) {
     const avgMood   = avg(allMoodValues.map(v => MOOD_MAP[v] ?? 0))
     const normalized = avgMood / MAX_MOOD
@@ -124,7 +131,7 @@ const compute = async (date) => {
     const totalNapHours = log.naps.reduce((s, n) => s + (n.hours || 0), 0)
     const napHoursNorm  = (totalNapHours - BASELINE_NAP) / MAX_NAP_DEVIATION
     score += napHoursNorm * weights.napHours
-    addFactor('napHours', `Nap: ${totalNapHours.toFixed(1)}h`, napHoursNorm)
+    addFactor('napHours', `Nap: ${fmtHours(totalNapHours)}`, napHoursNorm)
 
     const napStates    = log.naps.map(n => SLEEP_MAP[n.feltRestedAfter] ?? 0)
     const napStateNorm = avg(napStates) / MAX_SLEEP_STATE
@@ -160,8 +167,7 @@ const compute = async (date) => {
     // Negate: more time yesterday = negative normalized = lower score
     const normalized = -(prevTime - BASELINE_PREV_TIME) / MAX_PREV_TIME_DEV
     score += normalized * weights.prevDayTime
-    const hours = Math.round(prevTime / 60)
-    addFactor('prevDayTime', `Yesterday's workload (${hours}h)`, normalized)
+    addFactor('prevDayTime', `Yesterday's workload (${fmtMinutes(prevTime)})`, normalized)
   }
 
   // Previous day alcohol (now a Number -- 0 means none, higher means more)
