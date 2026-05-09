@@ -20,7 +20,7 @@ app.use('/api', require('./routes/analysis'))
 app.use('/api/gcal', require('./routes/gcal'))
 
 // Catch-all: serve frontend for any non-API route (must be after all API routes)
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, '../capacityTracker/frontend/dist/index.html'))
 })
 
