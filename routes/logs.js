@@ -46,10 +46,52 @@ router.put('/:id', async (req, res) => {
   }
 })
 
-router.delete('/:id', async (req, res) => { //deletes by id
+router.delete('/:id', async (req, res) => {
   try {
     await DailyLog.findByIdAndDelete(req.params.id)
     res.json({ message: 'Log deleted' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/:id/mood/:entryId', async (req, res) => {
+  try {
+    const log = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { moodLogs: { _id: req.params.entryId } } },
+      { returnDocument: 'after' }
+    )
+    if (!log) return res.status(404).json({ error: 'Log not found' })
+    res.json(log)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/:id/stress/:entryId', async (req, res) => {
+  try {
+    const log = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { stressLogs: { _id: req.params.entryId } } },
+      { returnDocument: 'after' }
+    )
+    if (!log) return res.status(404).json({ error: 'Log not found' })
+    res.json(log)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/:id/nap/:entryId', async (req, res) => {
+  try {
+    const log = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { naps: { _id: req.params.entryId } } },
+      { returnDocument: 'after' }
+    )
+    if (!log) return res.status(404).json({ error: 'Log not found' })
+    res.json(log)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
