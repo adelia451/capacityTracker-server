@@ -2,6 +2,7 @@ const DailyLog = require('../models/DailyLog')
 const Task = require('../models/Task')
 const { compute } = require('./capacityService')
 const { getCorrelationInsights } = require('./correlationService')
+const { fmtHours } = require('../utils/timeFormat')
 
 // --- rule-based helpers (always useful regardless of data volume) ---
 
@@ -18,9 +19,9 @@ const sleepInsights = (logs) => {
   const withSleep = logs.filter(l => l.sleep?.hours != null)
   if (!withSleep.length) return []
   const mean = avg(withSleep.map(l => l.sleep.hours))
-  if (mean < 6) return [`Your average sleep is ${mean.toFixed(1)} hours -- below the minimum needed for reliable capacity. Low sleep is likely your biggest score drag.`]
-  if (mean < 7) return [`Your average sleep is ${mean.toFixed(1)} hours -- functional but on the low side.`]
-  return [`Your average sleep is ${mean.toFixed(1)} hours, which is in a healthy range.`]
+  if (mean < 6) return [`Your average sleep is ${fmtHours(mean)} -- below the minimum needed for reliable capacity. Low sleep is likely your biggest score drag.`]
+  if (mean < 7) return [`Your average sleep is ${fmtHours(mean)} -- functional but on the low side.`]
+  return [`Your average sleep is ${fmtHours(mean)}, which is in a healthy range.`]
 }
 
 const burnoutInsights = (scores) => {

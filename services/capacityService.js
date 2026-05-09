@@ -2,12 +2,7 @@ const DailyLog = require('../models/DailyLog')
 const Task = require('../models/Task')
 const WeightSettings = require('../models/WeightSettings')
 
-const fmtHours = (hours) => {
-  const h = Math.floor(hours)
-  const m = Math.round((hours - h) * 60)
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
-}
-const fmtMinutes = (mins) => fmtHours(mins / 60)
+const { fmtHours, fmtMinutes } = require('../utils/timeFormat')
 
 const MOOD_MAP = {
   depressed: -4, heavy: -3, sad: -2, meh: -1,

@@ -48,15 +48,13 @@ Create a file called `.env` in the root of the project. It is listed in `.gitign
 
 ### Configure Claude Code
 
-The **Claude Code VS Code extension** was used throughout this project as a learning and review tool -- to check understanding of concepts while building, catch inconsistencies, and review decisions before committing to them.
+The **Claude Code VS Code extension** was used throughout this project as a learning and review tool and to check understanding of concepts while building, catch inconsistencies, and review decisions before committing to them.
 
 To use it on a new machine:
 1. Open VS Code and go to the Extensions tab
 2. Search for **Claude Code** and install it
 3. Sign in with your Anthropic account
 4. Open the project folder in VS Code -- the extension is ready to use from there
-
-No `CLAUDE.md` configuration file was used. All AI-assisted decisions are reflected in the code and documented in this guide.
 
 ### Connect to MongoDB Atlas
 
@@ -130,7 +128,8 @@ capacity-tracker-server/
 ├── /models
 ├── /routes
 ├── /services
-└── /scripts
+├── /scripts
+└── /utils
 ```
 
 - `.gitignore` must contain: `node_modules` and `.env`
@@ -192,7 +191,7 @@ Each `app.use()` line connects a route file to a base URL path. This keeps the c
 
 ### 1.3: Data Modeling with Mongoose
 
-A Mongoose schema defines the shape of your data before it goes into MongoDB. Think of it like a form -- it specifies what fields exist, what type they are, and any constraints. Each schema becomes a model, which is what the routes use to read and write to the database.
+A Mongoose schema defines the shape of your data before it goes into MongoDB. Think of it like a form; it specifies what fields exist, what type they are, and any constraints. Each schema becomes a model, which is what the routes use to read and write to the database.
 
 This app has three models: `DailyLog`, `Task`, and `WeightSettings`.
 
@@ -200,19 +199,34 @@ This app has three models: `DailyLog`, `Task`, and `WeightSettings`.
 
 **`models/DailyLog.js`**
 
-One log per day -- enforced by `unique: true` on the `date` field. The date is stored as a `YYYY-MM-DD` string in local time.
+One document per day -- enforced by `unique: true` on the `date` field. The date is stored as a `YYYY-MM-DD` string in local time. That document acts as a container for everything logged that day, and fields like `moodLogs`, `stressLogs`, and `naps` are arrays that grow as you add entries throughout the day.
 
 A few design decisions worth noting:
 
 - `sleep` and `naps` both use the same set of state values (`sleepy` through `energized`), so that list is pulled out as a `state` constant at the top and reused in both fields rather than repeating it.
 - `reason` is also a constant -- a list of possible reasons for a mood or stress entry, grouped into internal, physical, and external categories. It's reused across `moodLogs` and `stressLogs`.
-- `moodLogs` and `stressLogs` are arrays because you can log multiple times in a day. Each entry has a `time`, a `value`, and one or more `reason` values. Mood `value` is an array (you can feel multiple things at once). Stress `value` is a single string (you pick one level).
+- `moodLogs` and `stressLogs` are arrays because you can log multiple times in a day. Each entry has a `time`, a `value`, and one or more `reason` values. Both mood and stress `value` are a single string per entry -- you pick one mood and one stress level at a time. If your mood or stress changes during the day, you add a new entry rather than editing the existing one.
 - `medQuality` and `focusQuality` are arrays so you can log how medication felt at different points in the day -- onset, peak, wearing off.
 - `alcohol` is a Number (0 = none, up to 8 = max tracked). It feeds directly into the capacity score -- previous night's alcohol lowers today's score, with the weight learned from your data.
 - `actualCapacityRating` is a 1-10 number you fill in at end of day to rate how capacity actually felt. This is the feedback signal the learning system trains on.
-- `proteinLogs` and `naps` are in the schema for data collection even though they're not analyzed yet. The data will be ready when analysis is built later.
+- `naps` are fully analyzed -- nap hours and felt-rested-after state both feed into the capacity score and the correlation engine.
+- `proteinLogs` is in the schema for data collection but not analyzed yet. The data will be ready when analysis is built later.
 
 The medication section tracks timing (`takenAt`, `feltOnset`, `feltPeak`, `feltEnd`) and whether it was skipped and why.
+
+---
+
+**`utils/reasonMap.js`**
+
+Maps every reason string to its category: `internal`, `physical`, `external`, or `neutral`. Used by the correlation engine to group mood and stress reasons into categories so patterns like "most of your stress is externally triggered" can be discovered. The keys match the `reason` enum in `DailyLog.js` exactly.
+
+**`utils/timeFormat.js`**
+
+Two helper functions used across services to format time values as hours and minutes:
+- `fmtHours(hours)` : converts a decimal hours value to "Xh Ym" (e.g. 7.667 → "7h 40m")
+- `fmtMinutes(mins)` : converts minutes to the same format (e.g. 460 → "7h 40m")
+
+Used in `capacityService.js` for factor labels and `insightService.js` for sleep average strings.
 
 ---
 
@@ -227,11 +241,11 @@ Stores the learned scoring weights in MongoDB so they persist across server rest
 Tasks are designed to come from Google Calendar sync rather than manual creation. Most fields get populated automatically -- `title`, `date`, `timeSpent`, `startTime`, `endTime`, and `gcalEventId` all come from the GCal event. The user sets `effortWeight` manually, and `completed`, `timesPostponed`, and `postponedDates` are updated through the frontend.
 
 Key fields:
-- `category` -- must match one of the 7 Google Calendar names exactly: `class`, `homework`, `practice`, `projects`, `admin`, `maintenance`, `social`
-- `gcalEventId` -- stores the Google event ID so re-syncing doesn't create duplicate tasks
-- `startTime` / `endTime` -- full ISO datetime strings from GCal, used to sort tasks chronologically within a day
-- `timesPostponed` / `postponedDates` -- tracks deferral history, used for avoidance pattern analysis
-- `skippedClass` / `skipClassReasons` -- class-specific fields for tracking attendance. Reasons: `sick`, `workload`, `period pain`, `low mood`, `tiredness`
+- `category` : must match one of the 7 Google Calendar names exactly: `class`, `homework`, `practice`, `projects`, `admin`, `maintenance`, `social`
+- `gcalEventId` : stores the Google event ID so re-syncing doesn't create duplicate tasks
+- `startTime` / `endTime` : full ISO datetime strings from GCal, used to sort tasks chronologically within a day
+- `timesPostponed` / `postponedDates` : tracks deferral history, used for avoidance pattern analysis
+- `skippedClass` / `skipClassReasons` : class-specific fields for tracking attendance. Reasons: `sick`, `workload`, `period pain`, `low mood`, `tiredness`
 
 ---
 
@@ -240,11 +254,11 @@ Key fields:
 Each route file handles one resource and lives in `/routes`. The files are connected to URL prefixes in `server.js` using `app.use()`, so the route file itself only defines what happens after that prefix (e.g. `routes/logs.js` handles everything after `/api/logs`).
 
 Both `logs.js` and `tasks.js` follow the same five-endpoint pattern:
-- `POST /` -- create a new document from the request body
-- `GET /` -- return all documents, sorted newest first
-- `GET /:date` -- return document(s) for a specific date
-- `PUT /:id` -- update a document by its MongoDB `_id`
-- `DELETE /:id` -- delete a document by its MongoDB `_id`
+- `POST /` : create a new document from the request body
+- `GET /` : return all documents, sorted newest first
+- `GET /:date` : return document(s) for a specific date
+- `PUT /:id` : update a document by its MongoDB `_id`
+- `DELETE /:id` : delete a document by its MongoDB `_id`
 
 A few decisions that apply to both:
 - The PUT route passes `{ returnDocument: 'after' }` to `findByIdAndUpdate` so it returns the updated document, not the old one. It also checks if the document was found and returns a 404 if not, rather than returning null with a 200 status.
@@ -252,9 +266,18 @@ A few decisions that apply to both:
 
 The one difference between logs and tasks: `GET /:date` on logs uses `findOne` because only one log can exist per date. On tasks it uses `find` because multiple tasks can share the same date, and results are sorted by `startTime` ascending so they appear in schedule order.
 
-The logs POST has one extra piece of error handling -- if MongoDB throws error code `11000` (a unique constraint violation, meaning a log already exists for that date), it returns a clear message instead of a raw database error.
+The logs POST has one extra piece of error handling; if MongoDB throws error code `11000` (a unique constraint violation, meaning a log already exists for that date), it returns a clear message instead of a raw database error.
 
-`routes/analysis.js` is different -- it has no CRUD. It just calls the service layer and returns the result. See section 1.5.
+The logs route has three additional DELETE endpoints for removing individual subdocument entries:
+- `DELETE /api/logs/:id/mood/:entryId` : removes a single mood log entry
+- `DELETE /api/logs/:id/stress/:entryId` : removes a single stress log entry
+- `DELETE /api/logs/:id/nap/:entryId` : removes a single nap entry
+
+These use MongoDB's `$pull` operator to remove the specific subdocument by its `_id` and return the updated log.
+
+The task PUT route has one extra behaviour: if the update includes `timesPostponed`, it automatically sets `timeSpent` to 0. The reasoning is in section 1.9.
+
+`routes/analysis.js` is different because it has no CRUD. It just calls the service layer and returns the result. See section 1.5.
 
 ---
 
@@ -262,56 +285,23 @@ The logs POST has one extra piece of error handling -- if MongoDB throws error c
 
 Analysis routes don't do CRUD. They read existing data and compute something from it. They live in `routes/analysis.js` and each one calls a service to do the actual calculation.
 
-```js
-const router = require('express').Router()
-const capacityService = require('../services/capacityService')
-const insightService = require('../services/insightService')
-const predictionService = require('../services/predictionService')
+The analysis router connects five endpoints to their respective services. `/capacity` defaults to today's date if none is passed. `/calibrate` is a POST because it writes to the database (updating weights). The others are GET since they only read and compute.
 
-router.get('/capacity', async (req, res) => {
-  try {
-    const date = req.query.date || new Date().toLocaleDateString('en-CA')
-    const result = await capacityService.compute(date)
-    res.json(result)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-router.get('/insights', async (req, res) => {
-  try {
-    const result = await insightService.generate()
-    res.json(result)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-router.get('/prediction', async (req, res) => {
-  try {
-    const result = await predictionService.predict()
-    res.json(result)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-module.exports = router
-```
+All five share the same pattern: call the service, return the result, catch errors.
 
 > `/capacity` defaults to today if no `?date=` is passed in the URL. You can also call it like `/api/capacity?date=2026-04-20` to get a score for a past day.
 
 **What each route returns:**
 
-`/api/capacity` -- returns score + factors array (see section 1.6 for shape)
+`/api/capacity` : returns score + factors array (see section 1.6 for shape)
 
-`/api/insights` -- returns a plain array of insight strings combining rule-based observations and correlation-discovered patterns:
+`/api/insights` : returns a plain array of insight strings combining rule-based observations and correlation-discovered patterns:
 ```json
-["Your average sleep is 5.8 hours -- below the minimum needed for reliable capacity.",
+["Your average sleep is 5h 48m -- below the minimum needed for reliable capacity.",
  "Your sleep duration moderately predicts lower stress level the next day (12 days of data)."]
 ```
 
-`/api/prediction` -- returns 3-day predictions with confidence % and factors. Confidence drops with distance and data inconsistency:
+`/api/prediction` : returns 3-day predictions with confidence % and factors. Confidence drops with distance and data inconsistency:
 ```json
 {
   "days": [
@@ -322,9 +312,9 @@ module.exports = router
 }
 ```
 
-`/api/correlations` -- returns the top 10 strongest discovered correlations as strings (same data as the correlation portion of insights, available separately)
+`/api/correlations` : returns the top 10 strongest discovered correlations as strings (same data as the correlation portion of insights, available separately)
 
-`/api/calibrate` (POST) -- runs the weight learning algorithm. Needs 7+ days with `actualCapacityRating` set. Returns the new weights.
+`/api/calibrate` (POST) : runs the weight learning algorithm. Needs 7+ days with `actualCapacityRating` set. Returns the new weights.
 
 ---
 
@@ -361,10 +351,10 @@ const focusQualityMap = {
 ```
 
 **The stress scale is a U-shape** -- `balanced` is the peak because that's productive good stress. Both extremes hurt:
-- `paralyzing` (-3) -- so much stress you do nothing
-- `debilitating` (-2) -- lots of stress, some output but taxing
-- `stress-free` (+1) -- feeling good with little to no work to worry about
-- `understimulated` (-1) -- so little urgency you end up doing nothing
+- `paralyzing` (-3) : so much stress you do nothing
+- `debilitating` (-2) : lots of stress, some output but taxing
+- `stress-free` (+1) : feeling good with little to no work to worry about
+- `understimulated` (-1) : so little urgency you end up doing nothing
 
 **!! This stress scale, and all scales, are personal to my experience !!**
 
@@ -378,8 +368,8 @@ const BASELINE_PREV_TIME = 240, MAX_PREV_TIME_DEV = 480  // previous day workloa
 ```
 
 **Cross-day factors** -- the score also accounts for the previous day:
-- `prevDayTime` -- the more hours you worked yesterday, the lower today's score. Normalized around 4 hours as neutral (baseline), max effect at 12 hours.
-- `prevDayAlcohol` -- alcohol the previous night lowers today's score. Normalized 0-8 drinks.
+- `prevDayTime` : the more hours you worked yesterday, the lower today's score. Normalized around 4 hours as neutral (baseline), max effect at 12 hours.
+- `prevDayAlcohol` : alcohol the previous night lowers today's score. Normalized 0-8 drinks.
 
 These are real scored factors with learnable weights, not just correlations.
 
@@ -400,18 +390,18 @@ These are real scored factors with learnable weights, not just correlations.
   "date": "2026-05-01",
   "score": 2.4,
   "factors": [
-    { "key": "sleepHours", "label": "Good sleep (7.5h)",    "impact": 0.25, "positive": true,  "neutral": false },
+    { "key": "sleepHours", "label": "Good sleep (7h 30m)",  "impact": 0.25, "positive": true,  "neutral": false },
     { "key": "stress",     "label": "Stress: balanced",     "impact": 0.67, "positive": true,  "neutral": false },
     { "key": "mood",       "label": "Mood: mostly meh",     "impact": 0.1,  "positive": false, "neutral": true  },
     { "key": "prevDayTime","label": "Yesterday's workload (6h)", "impact": 0.25, "positive": false, "neutral": false }
   ]
 }
 ```
-`neutral: true` means the impact is below 0.2 -- too small to call positive or negative.
+`neutral: true` means the impact is below 0.2, which is too small to call positive or negative.
 
 > **Customizing this for yourself:**
 > - Change the values in the maps to reflect how you personally experience each state
-> - Normalization constants should match your maps -- if you change `stressMap` values, update `MAX_STRESS` to the highest absolute value in the map
+> - Normalization constants should match your maps. If you change `stressMap` values, update `MAX_STRESS` to the highest absolute value in the map
 > - Cross-day baselines (`BASELINE_PREV_TIME`, `MAX_PREV_TIME_DEV`) can be adjusted if your typical workday is longer or shorter
 
 ---
@@ -494,7 +484,7 @@ POST body for creating a log:
 {
   "date": "2026-04-24",
   "sleep": { "start": "23:00", "end": "07:00", "hours": 8, "state": "awake" },
-  "moodLogs": [{ "time": "09:00", "value": ["positive"], "reason": ["accomplishment"] }],
+  "moodLogs": [{ "time": "09:00", "value": "positive", "reason": ["accomplishment"] }],
   "stressLogs": [{ "time": "10:00", "value": "balanced", "reason": [] }],
   "medication": { "takenAt": "08:30", "medQuality": ["felt"], "focusQuality": ["focused"], "skipped": false }
 }
@@ -526,24 +516,100 @@ Insights, prediction, and correlations will return "not enough data" messages un
 
 ---
 
-### How the Learning System Works
+### 1.9: Design Decisions and Why
 
-**The correlation engine** (`services/correlationService.js`) tracks every variable -- sleep, mood, stress, naps, medication, alcohol, task time and effort by category, completion rate, class skipping, and rolling averages over 2/3/4 previous days -- and computes Pearson correlations between all pairs at lag 0 (same day), lag 1 (next day), and lag 2 (two days later). The top 10 strongest correlations are surfaced as insights. The rolling windows mean the system discovers whether 2, 3, or 4 days of accumulated work is what actually predicts your capacity drop -- not a hardcoded assumption.
+These are the decisions made during the build that aren't obvious from the code alone.
 
-**The calibration system** (`services/calibrationService.js`) takes the days where you've set `actualCapacityRating` and computes how well each scoring factor correlates with your self-rated capacity. Factors that predict your actual experience better get higher weights. Weights are saved to `WeightSettings` in the database and loaded by the capacity service automatically. Run `POST /api/calibrate` to trigger it.
+**Deferred task timeSpent resets to 0**
 
-**When to run calibration:**
-- First meaningful run: after 7+ rated days
-- Re-run: every 2-4 weeks as your patterns accumulate more data
-- After any major life change that might shift your baseline
+When a task is marked as postponed (`timesPostponed` increments), its `timeSpent` is automatically reset to 0 in the backend. The reason: `timeSpent` comes from the Google Calendar event duration and represents how long the task was scheduled. If I deferred it, I didn't actually do it that day. Including its scheduled hours in my daily total would make it look like I worked more than I did. The hours summary should only reflect work that was actually completed.
 
-**What still improves with more data:**
-- The correlation engine needs 10+ days before insights appear and becomes more reliable the more data you have
-- The prediction confidence becomes more accurate over time
-- The calibrated weights become more personal and specific to you
-- Patterns that only happen occasionally (social carryover, burnout streaks) need enough instances to detect
+**Mood and stress are single-select per entry, but logged multiple times a day**
 
-**Still to build later:**
+Each mood and stress log entry captures one value at one moment in time; you pick one mood label and one stress level. Neither is multi-select. If how you feel changes during the day, you add a new entry rather than editing the existing one. This builds a timestamped timeline across the day, and the capacity score averages all entries for its calculation.
+
+**The stress scale is U-shaped, not linear**
+
+Most stress scales treat "more stress = worse." This one doesn't, because `balanced` is the productive stress that actually drives output. The scale runs: understimulated (-1) -- stress-free (+1) -- balanced (+2) -- debilitating (-2) -- paralyzing (-3). Both extremes lead to not working, just for different reasons: understimulated means not enough urgency to act, paralyzing means too much anxiety to function. The values are personal to my experience and not meant to be universal.
+
+**actualCapacityRating as the feedback signal**
+
+The scoring system computes capacity from observable inputs like sleep and mood. But the computed score might not match how capacity actually felt. I might sleep 8 hours and still feel terrible, or sleep 6 hours and feel sharp. The `actualCapacityRating` (1-10, entered at end of day) is my honest rating of how the day actually went. The calibration system uses this ground truth to learn which scoring factors genuinely predict my experience. Without it, the weights stay at 1 forever and the system never personalises.
+
+**Previous day workload is a scored factor, not just a correlation**
+
+If I worked 10 hours yesterday, today's capacity is already reduced before I've done anything. Sleep alone doesn't capture accumulated fatigue. I built `prevDayTime` directly into the capacity score rather than leaving it as just a discovered correlation. This means yesterday's work actively lowers today's score, with the weight learned from my actual ratings. The same applies to alcohol the night before.
+
+**TimeSpent comes from Google Calendar, not manual input**
+
+I keep my Google Calendar updated to reflect how long things actually took, not just how long they were scheduled for. So when tasks sync from GCal, the `timeSpent` value that gets stored is already the real time, not an estimate. This removes the need for a separate "actual time" field. 
+
+**Why tasks come from GCal instead of being created in the app**
+
+I already schedule everything in Google Calendar and don't want to maintain two systems. Creating tasks manually in the app would mean double-entering everything I already put in my calendar. The seven category calendars (class, homework, practice, projects, admin, maintenance, social) map directly to how I already organise my GCal. The app just reads from it.
+
+**Avoidance vs over-scheduling**
+
+Not completing a task isn't automatically a failure or avoidance. If my capacity was low and I had more planned than was realistically achievable, the tasks that didn't get done reflect bad planning, not avoidance. The correlation engine tracks both postponement rate and capacity score together, so patterns like "tasks consistently get deferred on low-capacity days" can be distinguished from "tasks get deferred even when capacity is fine."
+
+---
+
+### How the System Works: Equations and Logic
+
+**Capacity score formula**
+
+The score is a weighted sum of normalised factors:
+
+```
+score = Σ (normalised_value × weight)
+```
+
+Each factor is normalised to roughly -1 to +1 before being multiplied by its weight. Factors that help capacity are positive, factors that hurt are negative. The final score has no fixed maximum since it depends on how many factors were logged that day and what the weights are.
+
+**Normalisation**
+
+For ranged factors (sleep hours, nap hours, previous day workload):
+```
+normalised = (actual_value - baseline) / max_deviation
+```
+For example: sleep baseline is 6 hours, max deviation is 6. So 9 hours of sleep gives `(9 - 6) / 6 = 0.5`. Three hours gives `(3 - 6) / 6 = -0.5`.
+
+For enum factors (sleep state, mood, stress): each value is mapped to a number in the map, then divided by the maximum absolute value in that map.
+
+**The neutral threshold**
+
+If a factor's normalised contribution is between -0.2 and +0.2, it's marked as `neutral: true` in the response. The impact is too small to meaningfully call positive or negative, so the frontend displays it neutrally rather than as a green or red indicator.
+
+**Pearson correlation (used in both calibration and the correlation engine)**
+
+```
+r = [n(Σxy) - (Σx)(Σy)] / sqrt([n(Σx²) - (Σx)²] × [n(Σy²) - (Σy)²])
+```
+
+r ranges from -1 to +1. A value near +1 means two variables tend to rise and fall together. Near -1 means when one is high the other is low. Near 0 means no linear relationship. The engine only surfaces correlations where |r| >= 0.45 and there are at least 7 data points.
+
+**Calibration weight learning**
+
+For each scoring factor, the calibration computes its Pearson correlation with `actualCapacityRating` across all rated days. Factors with stronger correlations get higher weights. Weights are then normalised so they average to 1 (the same total influence as before calibration). A minimum weight of 0.1 ensures no factor is ever completely ignored.
+
+**Prediction confidence**
+
+```
+stdDev = sqrt(mean((score - mean(score))^2))
+baseConfidence = max(0, 100 - stdDev * 15)
+confidence for day N = max(0, baseConfidence - N * 12)
+```
+
+Lower standard deviation in recent scores means more consistent patterns = higher confidence. Confidence also drops 12 points for each day further into the future.
+
+**Rolling windows**
+
+The correlation engine includes `prevTimeSpent2day`, `prevTimeSpent3day`, and `prevTimeSpent4day` -- the total time worked over the previous 2, 3, and 4 days respectively. By including all three, the system discovers which accumulation window actually predicts capacity drops in practice, rather than assuming a fixed number of days.
+
+---
+
+### Still to Build Later
+
 - Protein and nap analysis (schema already collects the data)
 - Alcohol same-day insights (currently only tracked as a next-day factor)
 - More sophisticated prediction that accounts for planned task load
