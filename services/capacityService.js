@@ -2,25 +2,9 @@ const DailyLog = require('../models/DailyLog')
 const Task = require('../models/Task')
 const WeightSettings = require('../models/WeightSettings')
 
+const { avg } = require('../utils/math')
+const { SLEEP_MAP, MOOD_MAP, STRESS_MAP, MED_QUALITY_MAP, FOCUS_QUALITY_MAP } = require('../utils/scoreMaps')
 const { fmtHours, fmtMinutes } = require('../utils/timeFormat')
-
-const MOOD_MAP = {
-  depressed: -4, heavy: -3, sad: -2, meh: -1,
-  neutral: 0, positive: 1, happy: 2
-}
-const STRESS_MAP = {
-  understimulated: -1, 'stress-free': 1, balanced: 2,
-  debilitating: -2, paralyzing: -3
-}
-const SLEEP_MAP = {
-  sleepy: -2, tired: -1, neutral: 0, awake: 1, energized: 2
-}
-const MED_QUALITY_MAP = {
-  'no effect': -2, 'lightly felt': -1, 'felt': 1, 'strongly felt': 2
-}
-const FOCUS_QUALITY_MAP = {
-  'unfocused': -1, 'focused': 1, 'locked-in': 2
-}
 
 const MAX_MOOD            = 4
 const MAX_STRESS          = 3
@@ -64,8 +48,6 @@ const prevDateStr = (dateStr) => {
   return d.toLocaleDateString('en-CA')
 }
 
-const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
-
 const compute = async (date) => {
   const log = await DailyLog.findOne({ date })
   if (!log) return { date, score: null, message: 'No log found for this date' }
@@ -74,15 +56,18 @@ const compute = async (date) => {
   let score = 0
   const factors = []
 
+  let activeWeightSum = 0
+
   const addFactor = (key, label, normalized) => {
     const impact = Math.abs(normalized)
     const neutral = impact < 0.2
     factors.push({ key, label, impact, positive: !neutral && normalized >= 0, neutral })
+    activeWeightSum += weights[key] ?? 1
   }
 
   // Sleep hours
   if (log.sleep?.hours !== undefined) {
-    const normalized = (log.sleep.hours - BASELINE_SLEEP) / MAX_SLEEP_DEVIATION
+    const normalized = Math.max(-1, Math.min(1, (log.sleep.hours - BASELINE_SLEEP) / MAX_SLEEP_DEVIATION))
     score += normalized * weights.sleepHours
     const label = normalized >= 0.2 ? `Good sleep (${fmtHours(log.sleep.hours)})`
                 : normalized <= -0.2 ? `Poor sleep (${fmtHours(log.sleep.hours)})`
@@ -109,7 +94,7 @@ const compute = async (date) => {
     addFactor('mood', `Mood: mostly ${dominant}`, normalized)
   }
 
-  // Stress (single value per entry)
+  // Stress
   const allStressValues = log.stressLogs?.map(e => e.value).filter(Boolean) || []
   if (allStressValues.length) {
     const avgStress  = avg(allStressValues.map(v => STRESS_MAP[v] ?? 0))
@@ -124,13 +109,12 @@ const compute = async (date) => {
   // Naps
   if (log.naps?.length) {
     const totalNapHours = log.naps.reduce((s, n) => s + (n.hours || 0), 0)
-    const napHoursNorm  = (totalNapHours - BASELINE_NAP) / MAX_NAP_DEVIATION
+    const napHoursNorm  = Math.max(-1, Math.min(1, (totalNapHours - BASELINE_NAP) / MAX_NAP_DEVIATION))
     score += napHoursNorm * weights.napHours
     addFactor('napHours', `Nap: ${fmtHours(totalNapHours)}`, napHoursNorm)
 
     const napStates    = log.naps.map(n => SLEEP_MAP[n.feltRestedAfter] ?? 0)
     const napStateNorm = avg(napStates) / MAX_SLEEP_STATE
-    score += napStateNorm * weights.napState
     const stCounts = {}
     log.naps.forEach(n => { if (n.feltRestedAfter) stCounts[n.feltRestedAfter] = (stCounts[n.feltRestedAfter] || 0) + 1 })
     const domNapState = Object.entries(stCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown'
@@ -140,11 +124,11 @@ const compute = async (date) => {
   // Medication
   if (log.medication && !log.medication.skipped) {
     const medScores = []
-    if (log.medication.medQuality?.length) {
-      medScores.push(avg(log.medication.medQuality.map(q => MED_QUALITY_MAP[q] ?? 0)) / MAX_MED_QUALITY)
+    if (log.medication.medQuality) {
+      medScores.push((MED_QUALITY_MAP[log.medication.medQuality] ?? 0) / MAX_MED_QUALITY)
     }
-    if (log.medication.focusQuality?.length) {
-      medScores.push(avg(log.medication.focusQuality.map(q => FOCUS_QUALITY_MAP[q] ?? 0)) / MAX_FOCUS_QUALITY)
+    if (log.medication.focusQuality) {
+      medScores.push((FOCUS_QUALITY_MAP[log.medication.focusQuality] ?? 0) / MAX_FOCUS_QUALITY)
     }
     if (medScores.length) {
       const normalized = avg(medScores)
@@ -154,28 +138,32 @@ const compute = async (date) => {
     }
   }
 
-  // Previous day workload -- more time worked yesterday = lower capacity today
+  // Previous day workload — more time worked yesterday = lower capacity today
   const yesterday = prevDateStr(date)
   const prevTasks = await Task.find({ date: yesterday })
   if (prevTasks.length) {
     const prevTime = prevTasks.reduce((s, t) => s + (t.timeSpent || 0), 0)
-    // Negate: more time yesterday = negative normalized = lower score
-    const normalized = -(prevTime - BASELINE_PREV_TIME) / MAX_PREV_TIME_DEV
+    const normalized = Math.max(-1, Math.min(1, -(prevTime - BASELINE_PREV_TIME) / MAX_PREV_TIME_DEV))
     score += normalized * weights.prevDayTime
     addFactor('prevDayTime', `Yesterday's workload (${fmtMinutes(prevTime)})`, normalized)
   }
 
-  // Previous day alcohol (now a Number -- 0 means none, higher means more)
+  // Previous day alcohol
   const prevLog = await DailyLog.findOne({ date: yesterday })
   if (prevLog?.alcohol > 0) {
-    const normalized = -Math.min(prevLog.alcohol / 8, 1)  // normalize 0-8 drinks to 0 to -1
+    const normalized = -Math.min(prevLog.alcohol / 8, 1)
     score += normalized * weights.prevDayAlcohol
     addFactor('prevDayAlcohol', `Alcohol yesterday (${prevLog.alcohol})`, normalized)
   }
 
+  // Scale to 1–10, clamped so extreme inputs never produce out-of-range scores
+  const normalizedScore = activeWeightSum > 0
+    ? Math.min(10, Math.max(1, Math.round(((score / activeWeightSum + 1) / 2 * 9 + 1) * 10) / 10))
+    : null
+
   return {
     date,
-    score: Math.round(score * 100) / 100,
+    score: normalizedScore,
     factors
   }
 }

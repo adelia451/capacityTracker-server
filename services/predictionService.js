@@ -1,5 +1,6 @@
 const DailyLog = require('../models/DailyLog')
 const { compute } = require('./capacityService')
+const { avg } = require('../utils/math')
 
 const predict = async () => {
   const logs = await DailyLog.find().sort({ date: -1 }).limit(7)
@@ -8,11 +9,6 @@ const predict = async () => {
     return { prediction: 'Not enough data yet — predictions appear after 7+ days of logging' }
   }
 
-  // TODO: nap prediction (naps)
-  // TODO: protein prediction (proteinLogs)
-  // TODO: alcohol prediction (alcohol)
-
-  // Compute capacity scores for the last 7 days
   const scores = await Promise.all(logs.map(log => compute(log.date)))
   const validScores = scores.filter(s => s.score !== null).map(s => s.score)
 
@@ -20,16 +16,18 @@ const predict = async () => {
     return { prediction: 'Not enough scored data yet' }
   }
 
-  const avg = validScores.reduce((sum, s) => sum + s, 0) / validScores.length
+  const meanScore = avg(validScores)
 
-  // Standard deviation -- lower = more consistent = higher confidence
-  const variance = validScores.reduce((sum, s) => sum + Math.pow(s - avg, 2), 0) / validScores.length
+  // Simple trend: compare the more recent half of the window against the older half
+  const half = Math.floor(validScores.length / 2)
+  const trendDelta = half > 0
+    ? avg(validScores.slice(0, half)) - avg(validScores.slice(half))
+    : 0
+
+  const variance = validScores.reduce((sum, s) => sum + Math.pow(s - meanScore, 2), 0) / validScores.length
   const stdDev = Math.sqrt(variance)
-
-  // Confidence drops with distance and inconsistency (stdDev)
   const baseConfidence = Math.max(0, 100 - stdDev * 15)
 
-  // Average factors across past 7 days -- group by key (not label, since labels are dynamic)
   const allFactors = scores.flatMap(s => s.factors || [])
   const factorKeys = [...new Set(allFactors.map(f => f.key))]
   const avgFactors = factorKeys.map(key => {
@@ -49,9 +47,10 @@ const predict = async () => {
 
   const labels = ['Tomorrow', 'Day after', 'In 3 days']
 
+  // Project forward using the recent trend, damped so it doesn't overshoot
   const days = labels.map((label, i) => ({
     label,
-    score: Math.round(avg * 100) / 100,
+    score: Math.min(10, Math.max(1, Math.round((meanScore + trendDelta * (i + 1) * 0.25) * 10) / 10)),
     confidence: Math.round(Math.max(0, baseConfidence - i * 12)),
     factors: avgFactors
   }))

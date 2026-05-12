@@ -22,10 +22,8 @@ router.get('/', async (req, res) => {
 
 router.get('/:date', async (req, res) => {
   try {
-    // find not findOne — multiple tasks can exist for the same date
     const tasks = await Task.find({ date: req.params.date }).sort({ startTime: 1 })
-    if (!tasks.length) return res.status(404).json({ error: 'No tasks found for this date' })
-    res.json(tasks)
+    res.json(tasks)  // 200 with empty array when no tasks exist for this date
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -33,9 +31,34 @@ router.get('/:date', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const update = { ...req.body }
-    if (update.timesPostponed !== undefined) update.timeSpent = 0
-    const task = await Task.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
+    // Separate array-mutation fields from regular scalar fields
+    const { postponedDate, removePostponedDate, ...fields } = req.body
+    const mongoUpdate = {}
+
+    if (Object.keys(fields).length) {
+      mongoUpdate.$set = { ...fields }
+    }
+
+    // $addToSet prevents duplicate dates in the postponedDates array
+    if (postponedDate) {
+      mongoUpdate.$addToSet = { postponedDates: postponedDate }
+    } else if (removePostponedDate) {
+      mongoUpdate.$pull = { postponedDates: removePostponedDate }
+    }
+
+    // Only reset timeSpent when timesPostponed is actually increasing
+    if (fields.timesPostponed !== undefined) {
+      const existing = await Task.findById(req.params.id)
+      if (existing && fields.timesPostponed > existing.timesPostponed) {
+        mongoUpdate.$set = { ...(mongoUpdate.$set || {}), timeSpent: 0 }
+      }
+    }
+
+    const task = await Task.findByIdAndUpdate(
+      req.params.id,
+      mongoUpdate,
+      { returnDocument: 'after', runValidators: true }
+    )
     if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json(task)
   } catch (err) {
@@ -45,7 +68,8 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await Task.findByIdAndDelete(req.params.id)
+    const task = await Task.findByIdAndDelete(req.params.id)
+    if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json({ message: 'Task deleted' })
   } catch (err) {
     res.status(500).json({ error: err.message })

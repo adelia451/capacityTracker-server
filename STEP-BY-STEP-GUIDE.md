@@ -76,7 +76,7 @@ MongoDB connected
 Server running on port 3000
 ```
 
-If you see only the port line but not `MongoDB connected`, the Atlas connection failed -- check your IP whitelist and connection string.
+If the server exits immediately with a connection error, MongoDB failed to connect -- check your IP whitelist and connection string. The server will not start listening on the port until the database connection succeeds.
 
 ### Test Routes in Thunder Client
 
@@ -177,15 +177,21 @@ app.use('/api', require('./routes/analysis'))
 app.use('/api/gcal', require('./routes/gcal'))
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.log(err))
-
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`)
-})
+  .then(() => {
+    console.log('MongoDB connected')
+    app.listen(process.env.PORT, () => {
+      console.log(`Server running on port ${process.env.PORT}`)
+    })
+  })
+  .catch(err => {
+    console.error('MongoDB connection failed:', err)
+    process.exit(1)
+  })
 ```
 
 Each `app.use()` line connects a route file to a base URL path. This keeps the code modular. Instead of one giant file, each section of the API lives in its own file.
+
+MongoDB must connect successfully before the server starts accepting requests. If the connection fails, the process exits with a clear error rather than running in a broken state where routes work but database operations all fail silently.
 
 ---
 
@@ -206,7 +212,8 @@ A few design decisions worth noting:
 - `sleep` and `naps` both use the same set of state values (`sleepy` through `energized`), so that list is pulled out as a `state` constant at the top and reused in both fields rather than repeating it.
 - `reason` is also a constant -- a list of possible reasons for a mood or stress entry, grouped into internal, physical, and external categories. It's reused across `moodLogs` and `stressLogs`.
 - `moodLogs` and `stressLogs` are arrays because you can log multiple times in a day. Each entry has a `time`, a `value`, and one or more `reason` values. Both mood and stress `value` are a single string per entry -- you pick one mood and one stress level at a time. If your mood or stress changes during the day, you add a new entry rather than editing the existing one.
-- `medQuality` and `focusQuality` are arrays so you can log how medication felt at different points in the day -- onset, peak, wearing off.
+- `medQuality` and `focusQuality` are single-select strings -- you can't say medication was both "no effect" and "felt" at the same time, so only one value is allowed. You can update it via PUT if you change your mind later in the day.
+- The timing fields (`takenAt`, `feltOnset`, `feltPeak`, `feltEnd`) are filled in throughout the day as each phase happens. You log onset when you feel it kick in, peak when it's strongest, and end when it wears off -- all via PUT updates to the same log document.
 - `alcohol` is a Number (0 = none, up to 8 = max tracked). It feeds directly into the capacity score -- previous night's alcohol lowers today's score, with the weight learned from your data.
 - `actualCapacityRating` is a 1-10 number you fill in at end of day to rate how capacity actually felt. This is the feedback signal the learning system trains on.
 - `naps` are fully analyzed -- nap hours and felt-rested-after state both feed into the capacity score and the correlation engine.
@@ -222,11 +229,24 @@ Maps every reason string to its category: `internal`, `physical`, `external`, or
 
 **`utils/timeFormat.js`**
 
-Two helper functions used across services to format time values as hours and minutes:
-- `fmtHours(hours)` : converts a decimal hours value to "Xh Ym" (e.g. 7.667 → "7h 40m")
-- `fmtMinutes(mins)` : converts minutes to the same format (e.g. 460 → "7h 40m")
+Shared time formatting helpers used across services:
+- `fmtHours(hours)` -- converts decimal hours to "Xh Ym" (e.g. 7.667 → "7h 40m")
+- `fmtMinutes(mins)` -- converts minutes to the same format (e.g. 460 → "7h 40m")
 
-Used in `capacityService.js` for factor labels and `insightService.js` for sleep average strings.
+**`utils/math.js`**
+
+Shared math functions used across services:
+- `avg(arr)` -- mean of an array of numbers
+- `pearson(xs, ys)` -- Pearson correlation coefficient between two arrays
+
+**`utils/scoreMaps.js`**
+
+The numeric maps that convert enum strings into scores for the capacity calculation and correlation engine:
+- `SLEEP_MAP` -- sleepy/tired/neutral/awake/energized → -2 to +2
+- `MOOD_MAP` -- depressed to happy → -4 to +2
+- `STRESS_MAP` -- understimulated/stress-free/balanced/debilitating/paralyzing → U-shaped (-3 to +2)
+- `MED_QUALITY_MAP` -- no effect to strongly felt → -2 to +2
+- `FOCUS_QUALITY_MAP` -- unfocused/focused/locked-in → -1 to +2
 
 ---
 
@@ -261,12 +281,15 @@ Both `logs.js` and `tasks.js` follow the same five-endpoint pattern:
 - `DELETE /:id` : delete a document by its MongoDB `_id`
 
 A few decisions that apply to both:
-- The PUT route passes `{ returnDocument: 'after' }` to `findByIdAndUpdate` so it returns the updated document, not the old one. It also checks if the document was found and returns a 404 if not, rather than returning null with a 200 status.
+- The PUT route passes `{ returnDocument: 'after' }` to `findByIdAndUpdate` so it returns the updated document, not the old one. It also checks if the document was found and returns a 404 if not, rather than returning null with a 200 status. `runValidators: true` is also passed so enum constraints and min/max ranges are enforced on updates, not just on creation.
+- DELETE returns 404 if the document wasn't found, instead of always returning success.
 - The GET and DELETE routes use the date string for lookups on GET, and the MongoDB `_id` for updates and deletes. The frontend gets the `_id` from the initial POST or GET response and uses it for subsequent updates.
 
-The one difference between logs and tasks: `GET /:date` on logs uses `findOne` because only one log can exist per date. On tasks it uses `find` because multiple tasks can share the same date, and results are sorted by `startTime` ascending so they appear in schedule order.
+The one difference between logs and tasks: `GET /:date` on logs uses `findOne` because only one log can exist per date. On tasks it uses `find` and returns a 200 with an empty array when no tasks exist for that date (not a 404), because having no tasks on a day is normal and not an error. Results are sorted by `startTime` ascending so tasks appear in schedule order.
 
-The logs POST has one extra piece of error handling; if MongoDB throws error code `11000` (a unique constraint violation, meaning a log already exists for that date), it returns a clear message instead of a raw database error.
+The task PUT route has extra logic for deferrals: it first fetches the current task to check the existing `timesPostponed` value, and only resets `timeSpent` to 0 if `timesPostponed` is actually increasing. This prevents accidental resets when other fields are updated.
+
+The logs POST has one extra piece of error handling -- if MongoDB throws error code `11000` (a unique constraint violation, meaning a log already exists for that date), it returns a clear message instead of a raw database error.
 
 The logs route has three additional DELETE endpoints for removing individual subdocument entries:
 - `DELETE /api/logs/:id/mood/:entryId` : removes a single mood log entry
@@ -275,7 +298,11 @@ The logs route has three additional DELETE endpoints for removing individual sub
 
 These use MongoDB's `$pull` operator to remove the specific subdocument by its `_id` and return the updated log.
 
-The task PUT route has one extra behaviour: if the update includes `timesPostponed`, it automatically sets `timeSpent` to 0. The reasoning is in section 1.9.
+The task PUT route also handles two special fields from the frontend deferral flow:
+- `postponedDate` : a date string to add to the task's `postponedDates` array. Uses `$addToSet` so duplicates are ignored.
+- `removePostponedDate` : a date string to remove from `postponedDates`. Uses `$pull`.
+
+These are stripped from the body before the regular scalar update so they never land in `$set`.
 
 `routes/analysis.js` is different because it has no CRUD. It just calls the service layer and returns the result. See section 1.5.
 
@@ -522,7 +549,7 @@ These are the decisions made during the build that aren't obvious from the code 
 
 **Deferred task timeSpent resets to 0**
 
-When a task is marked as postponed (`timesPostponed` increments), its `timeSpent` is automatically reset to 0 in the backend. The reason: `timeSpent` comes from the Google Calendar event duration and represents how long the task was scheduled. If I deferred it, I didn't actually do it that day. Including its scheduled hours in my daily total would make it look like I worked more than I did. The hours summary should only reflect work that was actually completed.
+When a task is deferred (`timesPostponed` increases), its `timeSpent` is automatically reset to 0 in the backend. The backend checks the existing value first and only resets if the new `timesPostponed` is higher than what's stored — so sending the full task object on an unrelated update never accidentally zeros it. The reason for the reset: `timeSpent` comes from the Google Calendar event duration and represents how long the task was scheduled. If I deferred it, I didn't actually do it that day. Including its scheduled hours in my daily total would make it look like I worked more than I did. The hours summary should only reflect work that was actually completed.
 
 **Mood and stress are single-select per entry, but logged multiple times a day**
 
@@ -564,7 +591,13 @@ The score is a weighted sum of normalised factors:
 score = Σ (normalised_value × weight)
 ```
 
-Each factor is normalised to roughly -1 to +1 before being multiplied by its weight. Factors that help capacity are positive, factors that hurt are negative. The final score has no fixed maximum since it depends on how many factors were logged that day and what the weights are.
+Each factor is normalised to -1 to +1 before being multiplied by its weight. The weighted contributions are summed, then divided by the total active weight to produce a value between -1 and +1. This is then shifted and scaled to a 1-10 range:
+
+```
+score = (rawSum / activeWeightSum + 1) / 2 × 9 + 1
+```
+
+So 1 = no capacity, 5.5 = baseline (everything neutral), 10 = everything perfect. This matches the `actualCapacityRating` scale so the two are directly comparable. The score is also clamped to never go below 1 or above 10 even if extreme inputs push past the boundaries.
 
 **Normalisation**
 
@@ -586,7 +619,7 @@ If a factor's normalised contribution is between -0.2 and +0.2, it's marked as `
 r = [n(Σxy) - (Σx)(Σy)] / sqrt([n(Σx²) - (Σx)²] × [n(Σy²) - (Σy)²])
 ```
 
-r ranges from -1 to +1. A value near +1 means two variables tend to rise and fall together. Near -1 means when one is high the other is low. Near 0 means no linear relationship. The engine only surfaces correlations where |r| >= 0.45 and there are at least 7 data points.
+r ranges from -1 to +1. A value near +1 means two variables tend to rise and fall together. Near -1 means when one is high the other is low. Near 0 means no linear relationship. The engine only surfaces correlations where |r| >= 0.5 and there are at least 10 data points.
 
 **Calibration weight learning**
 
@@ -605,6 +638,10 @@ Lower standard deviation in recent scores means more consistent patterns = highe
 **Rolling windows**
 
 The correlation engine includes `prevTimeSpent2day`, `prevTimeSpent3day`, and `prevTimeSpent4day` -- the total time worked over the previous 2, 3, and 4 days respectively. By including all three, the system discovers which accumulation window actually predicts capacity drops in practice, rather than assuming a fixed number of days.
+
+**Burnout streak detection**
+
+The insight service flags a burnout risk when 4 or more consecutive days score above 7/10. The threshold of 7 was chosen to match the 1-10 scale -- anything above 7 is a genuinely high-capacity day, not just average.
 
 ---
 

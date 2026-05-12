@@ -1,9 +1,6 @@
-// created the router
 const router = require('express').Router()
-// imported the model
 const DailyLog = require('../models/DailyLog')
 
-// post
 router.post('/', async (req, res) => {
   try {
     const log = new DailyLog(req.body)
@@ -19,14 +16,14 @@ router.post('/', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const logs = await DailyLog.find().sort({ date: -1 }) //gets all logs, newest first
+    const logs = await DailyLog.find().sort({ date: -1 })
     res.json(logs)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-router.get('/:date', async (req, res) => { // :date is a URL parameter
+router.get('/:date', async (req, res) => {
   try {
     const log = await DailyLog.findOne({ date: req.params.date })
     if (!log) return res.status(404).json({ error: 'No log found for this date' })
@@ -38,7 +35,11 @@ router.get('/:date', async (req, res) => { // :date is a URL parameter
 
 router.put('/:id', async (req, res) => {
   try {
-    const log = await DailyLog.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
+    const log = await DailyLog.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { returnDocument: 'after', runValidators: true }
+    )
     if (!log) return res.status(404).json({ error: 'Log not found' })
     res.json(log)
   } catch (err) {
@@ -48,18 +49,20 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await DailyLog.findByIdAndDelete(req.params.id)
+    const log = await DailyLog.findByIdAndDelete(req.params.id)
+    if (!log) return res.status(404).json({ error: 'Log not found' })
     res.json({ message: 'Log deleted' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-router.delete('/:id/mood/:entryId', async (req, res) => {
+// Generic handler for pulling a single subdocument entry by _id
+const pullSubdoc = (arrayField) => async (req, res) => {
   try {
     const log = await DailyLog.findByIdAndUpdate(
       req.params.id,
-      { $pull: { moodLogs: { _id: req.params.entryId } } },
+      { $pull: { [arrayField]: { _id: req.params.entryId } } },
       { returnDocument: 'after' }
     )
     if (!log) return res.status(404).json({ error: 'Log not found' })
@@ -67,34 +70,10 @@ router.delete('/:id/mood/:entryId', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
-})
+}
 
-router.delete('/:id/stress/:entryId', async (req, res) => {
-  try {
-    const log = await DailyLog.findByIdAndUpdate(
-      req.params.id,
-      { $pull: { stressLogs: { _id: req.params.entryId } } },
-      { returnDocument: 'after' }
-    )
-    if (!log) return res.status(404).json({ error: 'Log not found' })
-    res.json(log)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-router.delete('/:id/nap/:entryId', async (req, res) => {
-  try {
-    const log = await DailyLog.findByIdAndUpdate(
-      req.params.id,
-      { $pull: { naps: { _id: req.params.entryId } } },
-      { returnDocument: 'after' }
-    )
-    if (!log) return res.status(404).json({ error: 'Log not found' })
-    res.json(log)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
+router.delete('/:id/mood/:entryId',   pullSubdoc('moodLogs'))
+router.delete('/:id/stress/:entryId', pullSubdoc('stressLogs'))
+router.delete('/:id/nap/:entryId',    pullSubdoc('naps'))
 
 module.exports = router

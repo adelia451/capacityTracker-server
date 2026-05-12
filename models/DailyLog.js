@@ -79,14 +79,14 @@ const dailyLogSchema = new mongoose.Schema({
     feltPeak: String,
     feltEnd: String,
     focusCapacityHours: Number,
-    medQuality: [{
+    medQuality: {
       type: String,
       enum: ['no effect', 'lightly felt', 'felt', 'strongly felt']
-    }],
-    focusQuality: [{
+    },
+    focusQuality: {
       type: String,
       enum: ['unfocused', 'focused', 'locked-in']
-    }],
+    },
     skipped: Boolean,
     skipReasons: [{ 
       type: String, 

@@ -25,10 +25,13 @@ app.get('/{*path}', (req, res) => {
 })
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.log(err))
-
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`)
-})
-
+  .then(() => {
+    console.log('MongoDB connected')
+    app.listen(process.env.PORT, () => {
+      console.log(`Server running on port ${process.env.PORT}`)
+    })
+  })
+  .catch(err => {
+    console.error('MongoDB connection failed:', err)
+    process.exit(1)
+  })
