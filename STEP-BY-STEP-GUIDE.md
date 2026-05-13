@@ -322,10 +322,9 @@ All five share the same pattern: call the service, return the result, catch erro
 
 `/api/capacity` : returns score + factors array (see section 1.6 for shape)
 
-`/api/insights` : returns a plain array of insight strings combining rule-based observations and correlation-discovered patterns:
+`/api/insights` : returns a plain array of rule-based insight strings. These are human-readable summaries computed from your logs -- sleep average and burnout streak detection. Requires 7+ days of logs.
 ```json
-["Your average sleep is 5h 48m -- below the minimum needed for reliable capacity.",
- "Your sleep duration moderately predicts lower stress level the next day (12 days of data)."]
+["Your average sleep is 5h 48m -- below the minimum needed for reliable capacity."]
 ```
 
 `/api/prediction` : returns 3-day predictions with confidence % and factors. Confidence drops with distance and data inconsistency:
@@ -339,7 +338,7 @@ All five share the same pattern: call the service, return the result, catch erro
 }
 ```
 
-`/api/correlations` : returns the top 10 strongest discovered correlations as strings (same data as the correlation portion of insights, available separately)
+`/api/correlations` : returns the top 10 strongest discovered variable correlations as readable strings. Requires 10+ days of logs. Correlations within the same variable family (e.g. sleep vs sleep) are filtered out as circular. Same-day correlations between capacity score inputs and the score itself are also excluded.
 
 `/api/calibrate` (POST) : runs the weight learning algorithm. Needs 7+ days with `actualCapacityRating` set. Returns the new weights.
 
@@ -619,7 +618,7 @@ If a factor's normalised contribution is between -0.2 and +0.2, it's marked as `
 r = [n(Σxy) - (Σx)(Σy)] / sqrt([n(Σx²) - (Σx)²] × [n(Σy²) - (Σy)²])
 ```
 
-r ranges from -1 to +1. A value near +1 means two variables tend to rise and fall together. Near -1 means when one is high the other is low. Near 0 means no linear relationship. The engine only surfaces correlations where |r| >= 0.5 and there are at least 10 data points.
+r ranges from -1 to +1. A value near +1 means two variables tend to rise and fall together. Near -1 means when one is high the other is low. Near 0 means no linear relationship. The engine only surfaces correlations where |r| >= 0.5 and there are at least 7 valid data pairs.
 
 **Calibration weight learning**
 

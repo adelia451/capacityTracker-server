@@ -3,7 +3,7 @@ const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 
 const pearson = (xs, ys) => {
   const pairs = xs.map((x, i) => [x, ys[i]]).filter(([x, y]) => x != null && y != null)
   const n = pairs.length
-  if (n < 2) return { r: null, n }
+  if (n < 7) return { r: null, n }
   const mx = avg(pairs.map(([x]) => x))
   const my = avg(pairs.map(([, y]) => y))
   const num = pairs.reduce((s, [x, y]) => s + (x - mx) * (y - my), 0)

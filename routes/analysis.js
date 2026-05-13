@@ -38,7 +38,7 @@ router.get('/prediction', async (req, res) => {
 router.get('/correlations', async (req, res) => {
   try {
     const logs = await DailyLog.find().sort({ date: 1 })
-    if (logs.length < 10) return res.json([])
+    if (logs.length < 7) return res.json([])
     const scoreResults = await Promise.all(logs.map(l => capacityService.compute(l.date)))
     const scoreMap = {}
     logs.forEach((l, i) => { scoreMap[l.date] = scoreResults[i].score })
